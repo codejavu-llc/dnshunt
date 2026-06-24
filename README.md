@@ -12,7 +12,7 @@ Most DNS resolvers either give you raw speed (massdns) or pretty output (dig), r
 
 # Install & Usage
 ```bash
-git clone https://github.com/codejavu-inc/dnshunt.git
+git clone https://github.com/codejavu-llc/dnshunt.git
 cd dnshunt
 go mod init dnshunt
 go mod tidy
