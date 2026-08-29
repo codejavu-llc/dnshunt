@@ -2,62 +2,99 @@ package ui
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"strings"
 
-	"dnshunt/pkg/dns"
+	"github.com/codejavu-llc/dnshunt/pkg/dns"
 )
 
-func PrintBanner() {
+func PrintBanner(output io.Writer) {
 	banner := CBCyan + `
    ██████╗ ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███╗   ██╗████████╗
    ██╔══██╗████╗  ██║██╔════╝██║  ██║██║   ██║████╗  ██║╚══██╔══╝
-   ██║  ██║██╔██╗ ██║███████╗███████║██║   ██║██╔██╗ ██║   ██║   
-   ██║  ██║██║╚██╗██║╚════██║██╔══██║██║   ██║██║╚██╗██║   ██║   
-   ██████╔╝██║ ╚████║███████║██║  ██║╚██████╔╝██║ ╚████║   ██║   
-   ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ` + CReset + `
-` + CBMag + `         ⚡ Fast Concurrent DNS Resolver ⚡` + CReset + `
-` + CBYellow + `              Made with ♥ by CodejaVu Team` + CReset + `
-` + CDim + `   ─────────────────────────────────────────────────────` + CReset + `
-`
-	fmt.Println(banner)
+   ██║  ██║██╔██╗ ██║███████╗███████║██║   ██║██╔██╗ ██║   ██║
+   ██║  ██║██║╚██╗██║╚════██║██╔══██║██║   ██║██║╚██╗██║   ██║
+   ██████╔╝██║ ╚████║███████║██║  ██║╚██████╔╝██║ ╚████║   ██║
+   ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝` + CReset + `
+` + CBMag + `       Fast, consensus-aware DNS reconnaissance` + CReset + `
+` + CDim + `   ─────────────────────────────────────────────────────` + CReset
+	fmt.Fprintln(output, banner)
 }
 
-func PrintHelp() {
-	PrintBanner()
-	fmt.Printf("%sUSAGE:%s\n  dnshunt [options]\n\n", CBold+CBGreen, CReset)
-	fmt.Printf("%sOPTIONS:%s\n", CBold+CBGreen, CReset)
-	opts := [][]string{
-		{"-r", "<file>", "File containing DNS resolver IPs"},
-		{"-R", "<list>", "Comma-separated resolver IPs"},
-		{"-l", "<file>", "Target list file"},
-		{"-t", "<type>", "DNS record type (A, AAAA, CNAME, TXT, MX, etc.)"},
-		{"-c", "<int>", "Concurrency level (default: 100)"},
-		{"-timeout", "<ms>", "Query timeout in ms (default: 3000)"},
-		{"-rc", "<int>", "Resolvers per target (default: 5)"},
-		{"-tcp", "", "Use TCP instead of UDP"},
-		{"-v", "", "Verbose live printing"},
-		{"-o", "<file>", "Output file (.json or .txt)"},
-		{"-h", "", "Show help"},
+func PrintHelp(output io.Writer) {
+	PrintBanner(output)
+	fmt.Fprintf(output, `%sUSAGE:%s
+  dnshunt [options] [target ...]
+  cat targets.txt | dnshunt [options]
+
+%sINPUT:%s
+  -l, -list <file>          Target file (stdin is used when omitted)
+  -r, -resolvers <file>     Resolver file, one endpoint per line
+  -R <list>                 Comma-separated resolver endpoints
+
+%sQUERY:%s
+  -t, -type <types>         Comma-separated record types (default A)
+  -all                      A, AAAA, CNAME, NS, MX, TXT, SRV, SOA,
+                            CAA, HTTPS, SVCB, DS, and DNSKEY
+  -c, -threads <n>          Concurrent target/type jobs (default 100)
+  -rc <n>                   Resolvers queried per job (default 5)
+  -consensus <n>            Required agreeing resolvers (default 1)
+  -retry <n>                Attempts on network/SERVFAIL/REFUSED (default 2)
+  -timeout <duration>       Per-attempt timeout: 3s or legacy 3000ms
+  -rate-limit <qps>         Global wire-query rate limit (default unlimited)
+  -tcp                      Force TCP; UDP already falls back on truncation
+  -edns-size <bytes>        Advertised UDP payload size (default 1400)
+
+%sWILDCARD FILTER:%s
+  -wildcard-domain <name>   Probe and filter wildcard answers below a domain
+  -wildcard-tests <n>       Random probes for load-balanced wildcards (default 3)
+  -include-wildcards        Keep matching wildcard results
+
+%sOUTPUT:%s
+  -o <file>                 Also save results to a file
+  -format <name>            plain, text, jsonl, or json
+  -jsonl                    Shortcut for -format jsonl
+  -silent                   Print resolved names only
+  -include-failures         Emit NXDOMAIN, NODATA, and query errors
+  -v, -verbose              Resolver evidence in text output
+  -stats                    Print a final summary even outside a terminal
+  -stream                   Constant-memory mode (disables input dedup/count)
+  -nc, -no-color            Disable ANSI colors
+  -no-progress              Disable live progress
+  -version                  Show version
+  -h, -help                 Show help
+
+%sRESOLVER ENDPOINTS:%s
+  1.1.1.1  [2606:4700:4700::1111]:53  udp://host:53
+  tcp://host:53  tls://dns.example:853  https://dns.example/dns-query
+
+%sEXAMPLES:%s
+  subfinder -silent -d example.com | dnshunt -silent -consensus 2
+  dnshunt -l hosts.txt -t A,AAAA,CNAME -jsonl -o results.jsonl
+  dnshunt -l candidates.txt -wildcard-domain example.com -silent
+  dnshunt example.com -all -R tls://1dot1dot1dot1.cloudflare-dns.com
+`, CBold+CBGreen, CReset, CBold+CBGreen, CReset, CBold+CBGreen, CReset,
+		CBold+CBGreen, CReset, CBold+CBGreen, CReset, CBold+CBGreen, CReset,
+		CBold+CBGreen, CReset)
+}
+
+func PrintSummary(output io.Writer, stats *dns.Stats, invalid, duplicates int64) {
+	processed, success, failed, wildcards, queries, _ := stats.GetCounts()
+	elapsed := stats.ElapsedSeconds()
+	fmt.Fprintf(output, "\n%sSummary%s  %d processed · %s%d resolved%s · %s%d failed%s",
+		CBold, CReset, processed, CBGreen, success, CReset, CBRed, failed, CReset)
+	if wildcards > 0 {
+		fmt.Fprintf(output, " · %s%d wildcard%s", CBYellow, wildcards, CReset)
 	}
-	for _, o := range opts {
-		fmt.Printf("  %s%-10s%s %s%-10s%s %s\n", CBCyan, o[0], CReset, CYellow, o[1], CReset, o[2])
+	if invalid > 0 || duplicates > 0 {
+		fmt.Fprintf(output, " · %d invalid · %d duplicate", invalid, duplicates)
+	}
+	fmt.Fprintf(output, " · %d queries · %s\n", queries, FormatDuration(elapsed))
+	if elapsed > 0 {
+		fmt.Fprintf(output, "%sThroughput%s  %.1f results/s · %.1f DNS queries/s\n", CDim, CReset, float64(processed)/elapsed, float64(queries)/elapsed)
 	}
 }
 
-func PrintResultLive(res dns.Result, verbose bool) {
-	if !verbose {
-		return
-	}
-	fmt.Fprint(os.Stderr, "\r\033[K")
-	if res.Success {
-		fmt.Printf("%s[+]%s %s%-40s%s %s→%s %s%s%s\n",
-			CBGreen, CReset, CBold, res.Target, CReset, CDim, CReset, CBCyan, strings.Join(res.Answers, ", "), CReset)
-	} else {
-		reason := "no answer"
-		if len(res.Errors) > 0 {
-			reason = res.Errors[0]
-		}
-		fmt.Printf("%s[-]%s %s%-40s%s %s(%s)%s\n", CBRed, CReset, CDim, res.Target, CReset, CRed, reason, CReset)
-	}
+func SupportedTypes() string {
+	return strings.Join([]string{"A", "AAAA", "CNAME", "NS", "MX", "TXT", "SRV", "PTR", "SOA", "CAA", "HTTPS", "SVCB", "TLSA", "DS", "DNSKEY", "NAPTR", "SSHFP", "CERT", "ANY"}, ", ")
 }

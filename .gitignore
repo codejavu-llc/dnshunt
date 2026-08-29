@@ -1,0 +1,4 @@
+/dnshunt
+/dist/
+/coverage.out
+*.prof

@@ -3,59 +3,71 @@ package ui
 import (
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"strings"
+	"time"
 
-	"dnshunt/pkg/dns"
+	"github.com/codejavu-llc/dnshunt/pkg/dns"
 )
 
-func RenderProgressBar(pct float64, width int) string {
-	filled := int(pct / 100 * float64(width))
-	if filled > width {
-		filled = width
+func RenderProgressBar(percent float64, width int) string {
+	if percent < 0 {
+		percent = 0
 	}
+	if percent > 100 {
+		percent = 100
+	}
+	filled := int(percent / 100 * float64(width))
 	return CBGreen + strings.Repeat("█", filled) + CDim + strings.Repeat("░", width-filled) + CReset
 }
 
-func FormatDuration(sec float64) string {
-	if sec < 60 {
-		return fmt.Sprintf("%.0fs", sec)
+func FormatDuration(seconds float64) string {
+	duration := time.Duration(seconds * float64(time.Second)).Round(time.Second)
+	if duration < time.Minute {
+		return duration.String()
 	}
-	return fmt.Sprintf("%dm%ds", int(sec)/60, int(sec)%60)
+	return fmt.Sprintf("%dm%02ds", int(duration.Minutes()), int(duration.Seconds())%60)
 }
 
-func ProgressTicker(ctx context.Context, stats *dns.Stats, done chan struct{}) {
+func ProgressTicker(ctx context.Context, stats *dns.Stats, output io.Writer, done chan<- struct{}) {
 	defer close(done)
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			render(stats)
-			fmt.Fprintln(os.Stderr)
+			render(stats, output)
+			fmt.Fprint(output, "\r\033[K")
 			return
-		case <-stats.Ticker.C:
-			render(stats)
+		case <-ticker.C:
+			render(stats, output)
 		}
 	}
 }
 
-func render(stats *dns.Stats) {
-	proc, ok, fail, total := stats.GetCounts()
+func render(stats *dns.Stats, output io.Writer) {
+	processed, success, failed, wildcards, queries, total := stats.GetCounts()
 	elapsed := stats.ElapsedSeconds()
-	var pct, rate float64
+	var percent, queryRate float64
 	if total > 0 {
-		pct = float64(proc) / float64(total) * 100
+		percent = float64(processed) / float64(total) * 100
 	}
 	if elapsed > 0 {
-		rate = float64(proc) / elapsed
+		queryRate = float64(queries) / elapsed
 	}
-
+	if total <= 0 {
+		fmt.Fprintf(output, "\r%s%d%s processed  %s✓ %d%s  %s✗ %d%s  %s≈ %d%s  %s%.0f q/s%s   ",
+			CBCyan, processed, CReset, CBGreen, success, CReset, CBRed, failed, CReset,
+			CBYellow, wildcards, CReset, CBBlue, queryRate, CReset)
+		return
+	}
 	eta := "--"
-	if rate > 0 && total > proc {
-		eta = FormatDuration(float64(total-proc) / rate)
+	if processed > 0 && total > processed {
+		targetRate := float64(processed) / elapsed
+		eta = FormatDuration(float64(total-processed) / targetRate)
 	}
-
-	bar := RenderProgressBar(pct, 24)
-	line := fmt.Sprintf("\r%s[%s] %s%5.1f%%%s  %s%d%s/%d  %s✓ %d%s  %s✗ %d%s  %s%.0f q/s%s  %sETA %s%s   ",
-		CDim, bar, CBYellow, pct, CReset, CBCyan, proc, CReset, total, CBGreen, ok, CReset, CBRed, fail, CReset, CBBlue, rate, CReset, CBYellow, eta, CReset)
-	fmt.Fprint(os.Stderr, line)
+	fmt.Fprintf(output, "\r[%s] %s%5.1f%%%s  %s%d%s/%d  %s✓ %d%s  %s✗ %d%s  %s≈ %d%s  %s%.0f q/s%s  ETA %s   ",
+		RenderProgressBar(percent, 20), CBYellow, percent, CReset, CBCyan, processed, CReset, total,
+		CBGreen, success, CReset, CBRed, failed, CReset, CBYellow, wildcards, CReset,
+		CBBlue, queryRate, CReset, eta)
 }

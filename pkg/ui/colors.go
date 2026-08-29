@@ -1,6 +1,6 @@
 package ui
 
-const (
+var (
 	CReset   = "\033[0m"
 	CBold    = "\033[1m"
 	CDim     = "\033[2m"
@@ -17,3 +17,9 @@ const (
 	CBMag    = "\033[95m"
 	CBCyan   = "\033[96m"
 )
+
+func DisableColors() {
+	CReset, CBold, CDim = "", "", ""
+	CRed, CGreen, CYellow, CBlue, CMagenta, CCyan = "", "", "", "", "", ""
+	CBRed, CBGreen, CBYellow, CBBlue, CBMag, CBCyan = "", "", "", "", "", ""
+}
