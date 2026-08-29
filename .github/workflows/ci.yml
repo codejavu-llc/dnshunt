@@ -32,3 +32,13 @@ jobs:
         run: go test -race -coverprofile=coverage.out ./...
       - name: Build static binary
         run: CGO_ENABLED=0 go build -trimpath -o dnshunt .
+
+  vulnerability-scan:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - id: govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
