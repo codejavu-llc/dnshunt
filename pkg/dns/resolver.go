@@ -6,8 +6,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -253,18 +253,33 @@ func ResolveTarget(ctx context.Context, target string, qtype uint16, qtypeName s
 		ConsensusRequired: opts.Consensus,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	picked := pickResolvers(resolvers, opts.ResolversEach, target, qtype)
-	responses := make([]ResolverResponse, len(picked))
-
-	var wg sync.WaitGroup
-	for i, resolver := range picked {
-		wg.Add(1)
-		go func(index int, resolver string) {
-			defer wg.Done()
-			responses[index] = queryResolver(ctx, target, qtype, resolver, opts)
-		}(i, resolver)
+	picked := pickResolvers(resolvers, opts.ResolversEach)
+	var responses []ResolverResponse
+	if opts.Consensus <= 1 {
+		// In ordinary resolution, additional resolvers are fallbacks only.
+		for _, resolver := range picked {
+			if ctx.Err() != nil {
+				break
+			}
+			response := queryResolver(ctx, target, qtype, resolver, opts)
+			responses = append(responses, response)
+			if response.Error == "" || response.RCode == "NXDOMAIN" {
+				break
+			}
+		}
+	} else {
+		// Explicit consensus requires independent observations.
+		responses = make([]ResolverResponse, len(picked))
+		var wg sync.WaitGroup
+		for i, resolver := range picked {
+			wg.Add(1)
+			go func(index int, resolver string) {
+				defer wg.Done()
+				responses[index] = queryResolver(ctx, target, qtype, resolver, opts)
+			}(i, resolver)
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 	result.Resolvers = responses
 
 	answerCount := make(map[string]int)
@@ -529,17 +544,26 @@ func recordKey(record Record) string {
 	return record.Name + "\x00" + record.Type + "\x00" + record.Value
 }
 
-func pickResolvers(pool []string, count int, target string, qtype uint16) []string {
-	if count >= len(pool) {
-		return append([]string(nil), pool...)
+// pickResolvers samples distinct pool entries in random order without copying the pool.
+func pickResolvers(pool []string, count int) []string {
+	if count > len(pool) {
+		count = len(pool)
 	}
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(target))
-	_, _ = hasher.Write([]byte{byte(qtype >> 8), byte(qtype)})
-	start := int(hasher.Sum64() % uint64(len(pool)))
 	result := make([]string, 0, count)
+	swaps := make(map[int]int, count)
 	for i := 0; i < count; i++ {
-		result = append(result, pool[(start+i)%len(pool)])
+		remaining := len(pool) - i
+		index := rand.IntN(remaining)
+		selected, ok := swaps[index]
+		if !ok {
+			selected = index
+		}
+		last, ok := swaps[remaining-1]
+		if !ok {
+			last = remaining - 1
+		}
+		swaps[index] = last
+		result = append(result, pool[selected])
 	}
 	return result
 }

@@ -57,3 +57,22 @@ func TestJSONArrayAlwaysClosesValidly(t *testing.T) {
 		t.Fatalf("result count = %d", len(results))
 	}
 }
+
+func TestSilentIncludesFailuresWhenRequested(t *testing.T) {
+	var output bytes.Buffer
+	stream, err := New(&output, Options{Silent: true, IncludeFailures: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, result := range []dns.Result{{Target: "ok.example", Success: true}, {Target: "missing.example", Status: "NXDOMAIN"}} {
+		if err := stream.Write(result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "ok.example\nmissing.example\n" {
+		t.Fatalf("output = %q", output.String())
+	}
+}

@@ -2,12 +2,12 @@
 
 Fast, consensus-aware DNS reconnaissance for bug-bounty and security workflows.
 
-dnshunt resolves large target sets against multiple DNS resolvers in parallel, records the evidence returned by each resolver, and can require independent agreement before a result is accepted. It is built for the point where passive subdomain discovery becomes active validation.
+dnshunt resolves large target sets, stops at the first error-free response by default, and can require independent agreement across resolvers before a result is accepted. It is built for the point where passive subdomain discovery becomes active validation.
 
 ## Why dnshunt
 
 - Cross-resolver consensus: query several distinct resolver endpoints and require `-consensus N` matching observations instead of blindly trusting one answer.
-- Parallel verification: resolvers for each target are queried concurrently, avoiding the linear latency cost of serial cross-checks.
+- Optional parallel verification: with `-consensus 2` or higher, resolvers for each target are queried concurrently.
 - Recon-ready input: stdin, files, and direct targets; URL/port cleanup; IDN conversion; invisible-character removal; validation; and deduplication.
 - Reliable DNS behavior: configurable retries, global rate limiting, the current RFC-recommended 1400-byte EDNS default, and automatic TCP fallback for truncated UDP replies.
 - Modern transports: UDP, TCP, DNS-over-TLS, and DNS-over-HTTPS resolver endpoints.
@@ -92,7 +92,7 @@ Plain addresses use UDP on port 53. `-tcp` changes plain and `udp://` endpoints 
 
 ## Consensus and result status
 
-`-rc` selects how many resolvers are queried for each target/type job. `-consensus` selects how many distinct resolvers must return the same answer for it to be accepted.
+`-rc` limits the number of resolvers available for each target/type job (default 5). With the default `-consensus 1`, resolvers are selected randomly without replacement and tried sequentially until one returns `NOERROR` (including an empty answer/NODATA) or `NXDOMAIN`. Other errors allow fallback to the next resolver after any configured retries. Use `-retry 1` to move directly to a different resolver after an error or timeout. With `-consensus 2` or higher, selected resolvers are queried concurrently for verification. `-consensus` selects how many distinct resolvers must return the same answer for it to be accepted.
 
 ```bash
 # Five observations, at least three must agree.
@@ -150,3 +150,13 @@ The tests run against local UDP/TCP DNS servers and do not depend on public DNS.
 ## Project direction
 
 dnshunt is intentionally focused on trustworthy active DNS validation rather than passive asset discovery. The research-backed roadmap prioritizes automatic multi-level wildcard discovery, a separate trusted revalidation phase, resolver health scoring/quarantine, and native bruteforce generation. See [competitive analysis and roadmap](docs/COMPETITIVE_ANALYSIS.md#recommended-roadmap).
+
+## Output destinations and failures
+
+Without `-o`, results go to stdout. With `-o`, results go only to the file; add `-v` to also print them to stdout. Progress and diagnostics still go to stderr.
+
+Use `-include-failures` to include failed lookups (NXDOMAIN, NODATA, and errors) alongside successes in the selected output. JSONL preserves status, errors, and individual resolver responses, including failed attempts before a successful fallback. With `-silent`, included results contain names only, so use plain, text, or JSONL without `-silent` when you need failure details.
+
+```bash
+./dnshunt -l domains.txt -r resolvers.txt -rate-limit 250 -retry 1 -rc 5 -o results.jsonl -jsonl -include-failures
+```

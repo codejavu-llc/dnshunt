@@ -57,6 +57,97 @@ func testOptions(resolvers, consensus, retries int) ResolveOptions {
 	}
 }
 
+func TestResolveTargetStopsAfterNoError(t *testing.T) {
+	for _, empty := range []bool{false, true} {
+		t.Run(strconv.FormatBool(empty), func(t *testing.T) {
+			var queries atomic.Int32
+			handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
+				queries.Add(1)
+				if empty {
+					response := new(mdns.Msg)
+					response.SetReply(r)
+					_ = w.WriteMsg(response)
+					return
+				}
+				aHandler("192.0.2.20").ServeDNS(w, r)
+			})
+			one := startDNSServer(t, handler)
+			two := startDNSServer(t, handler)
+			result := ResolveTarget(context.Background(), "stop.example", mdns.TypeA, "A", []string{one, two}, testOptions(2, 1, 2))
+			if queries.Load() != 1 || len(result.Resolvers) != 1 || result.Resolvers[0].Error != "" {
+				t.Fatalf("expected one successful exchange, queries=%d result=%+v", queries.Load(), result)
+			}
+		})
+	}
+}
+
+func TestResolveTargetStopsAfterNXDomain(t *testing.T) {
+	var queries atomic.Int32
+	handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
+		queries.Add(1)
+		response := new(mdns.Msg)
+		response.SetRcode(r, mdns.RcodeNameError)
+		_ = w.WriteMsg(response)
+	})
+	one := startDNSServer(t, handler)
+	two := startDNSServer(t, handler)
+	result := ResolveTarget(context.Background(), "missing.example", mdns.TypeA, "A", []string{one, two}, testOptions(2, 1, 2))
+	if queries.Load() != 1 || len(result.Resolvers) != 1 || result.Status != "NXDOMAIN" {
+		t.Fatalf("expected terminal NXDOMAIN, queries=%d result=%+v", queries.Load(), result)
+	}
+}
+
+func TestResolveTargetFallsBackAfterError(t *testing.T) {
+	// All endpoints share a counter so the first selected resolver fails,
+	// regardless of the random selection order.
+	for _, rcode := range []int{mdns.RcodeServerFailure, mdns.RcodeRefused, -1} {
+		t.Run(strconv.Itoa(rcode), func(t *testing.T) {
+			var queries atomic.Int32
+			handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
+				if queries.Add(1) <= 2 {
+					if rcode == -1 {
+						return // Simulate a timeout.
+					}
+					response := new(mdns.Msg)
+					response.SetRcode(r, rcode)
+					_ = w.WriteMsg(response)
+					return
+				}
+				aHandler("192.0.2.20").ServeDNS(w, r)
+			})
+			one := startDNSServer(t, handler)
+			two := startDNSServer(t, handler)
+			three := startDNSServer(t, handler)
+			opts := testOptions(3, 1, 2)
+			opts.Timeout = 50 * time.Millisecond
+			result := ResolveTarget(context.Background(), "fallback.example", mdns.TypeA, "A", []string{one, two, three}, opts)
+			if !result.Success || len(result.Resolvers) != 2 || queries.Load() != 3 {
+				t.Fatalf("unexpected fallback: queries=%d result=%+v", queries.Load(), result)
+			}
+			if result.Resolvers[0].Resolver == result.Resolvers[1].Resolver {
+				t.Fatal("fallback reused the failed resolver")
+			}
+		})
+	}
+}
+
+func TestPickResolversWithoutReplacement(t *testing.T) {
+	pool := []string{"one", "two", "three", "four"}
+	for _, count := range []int{1, 3, 4, 5} {
+		picked := pickResolvers(pool, count)
+		if len(picked) != min(count, len(pool)) {
+			t.Fatalf("incorrect sample size: %v", picked)
+		}
+		seen := make(map[string]bool)
+		for _, resolver := range picked {
+			if seen[resolver] {
+				t.Fatalf("duplicate resolver: %v", picked)
+			}
+			seen[resolver] = true
+		}
+	}
+}
+
 func TestResolveTargetUsesConsensus(t *testing.T) {
 	one := startDNSServer(t, aHandler("192.0.2.10"))
 	two := startDNSServer(t, aHandler("192.0.2.10"))

@@ -37,7 +37,7 @@ func PrintHelp(output io.Writer) {
   -all                      A, AAAA, CNAME, NS, MX, TXT, SRV, SOA,
                             CAA, HTTPS, SVCB, DS, and DNSKEY
   -c, -threads <n>          Concurrent target/type jobs (default 100)
-  -rc <n>                   Resolvers queried per job (default 5)
+  -rc <n>                   Maximum resolvers per job (default 5)
   -consensus <n>            Required agreeing resolvers (default 1)
   -retry <n>                Attempts on network/SERVFAIL/REFUSED (default 2)
   -timeout <duration>       Per-attempt timeout: 3s or legacy 3000ms
@@ -51,12 +51,12 @@ func PrintHelp(output io.Writer) {
   -include-wildcards        Keep matching wildcard results
 
 %sOUTPUT:%s
-  -o <file>                 Also save results to a file
+  -o <file>                 Save results to a file (CLI results require -v)
   -format <name>            plain, text, jsonl, or json
   -jsonl                    Shortcut for -format jsonl
-  -silent                   Print resolved names only
-  -include-failures         Emit NXDOMAIN, NODATA, and query errors
-  -v, -verbose              Resolver evidence in text output
+  -silent                   Print names only (successes by default)
+  -include-failures         Include failed lookups alongside successes
+  -v, -verbose              Show CLI results with -o; details in text output
   -stats                    Print a final summary even outside a terminal
   -stream                   Constant-memory mode (disables input dedup/count)
   -nc, -no-color            Disable ANSI colors

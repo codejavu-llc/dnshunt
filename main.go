@@ -100,16 +100,21 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Verbose:         cfg.Verbose,
 		IncludeFailures: cfg.IncludeFailures,
 	}
-	consoleWriter, err := writer.New(stdout, outputOptions)
-	if err != nil {
-		fmt.Fprintf(stderr, "dnshunt: initialize output: %v\n", err)
-		return 1
+	var consoleWriter writer.ResultWriter
+	if cfg.OutputFile == "" || cfg.Verbose {
+		consoleWriter, err = writer.New(stdout, outputOptions)
+		if err != nil {
+			fmt.Fprintf(stderr, "dnshunt: initialize output: %v\n", err)
+			return 1
+		}
 	}
 	var fileWriter writer.ResultWriter
 	if cfg.OutputFile != "" {
 		fileWriter, err = writer.NewFile(cfg.OutputFile, outputOptions)
 		if err != nil {
-			_ = consoleWriter.Close()
+			if consoleWriter != nil {
+				_ = consoleWriter.Close()
+			}
 			fmt.Fprintf(stderr, "dnshunt: initialize output file: %v\n", err)
 			return 1
 		}

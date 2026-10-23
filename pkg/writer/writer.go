@@ -115,9 +115,6 @@ func (stream *streamWriter) Write(result dns.Result) error {
 
 func (stream *streamWriter) writePlain(result dns.Result) error {
 	if stream.options.Silent {
-		if !result.Success {
-			return nil
-		}
 		_, err := fmt.Fprintln(stream.buffer, result.Target)
 		return err
 	}

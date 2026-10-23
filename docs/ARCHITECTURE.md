@@ -12,7 +12,7 @@ file / stdin / arguments
  target × record-type jobs
           │
           ▼
- bounded worker pool ──► parallel resolver fan-out
+ bounded worker pool ──► resolver selection / fallback
           │                    │
           │                    ├─ rate limit
           │                    ├─ retry transient failures
@@ -40,9 +40,9 @@ file / stdin / arguments
 
 ## Concurrency model
 
-`-c` bounds target/type jobs. A job queries up to `-rc` resolvers concurrently, making the approximate maximum in-flight exchanges `c × rc`. A single result consumer owns output ordering and write state. The global rate limiter is shared by all resolver goroutines and counts retries and TCP fallbacks as separate wire queries.
+`-c` bounds target/type jobs. By default, a job tries up to `-rc` resolvers sequentially, stopping at the first error-free response (including NODATA) or NXDOMAIN, so at most `c` exchanges are in flight. Explicit `-consensus 2` or higher enables concurrent resolver verification, making the approximate maximum `c × rc`. A single result consumer owns output ordering and write state. The global rate limiter is shared by all resolver goroutines and counts retries and TCP fallbacks as separate wire queries.
 
-Resolver selection is deterministic for a target/type pair. It rotates the starting point through the resolver pool, producing repeatable evidence without sending every target to the same subset.
+Resolvers are selected randomly without replacement for each target/type job. Default resolution contacts another selected resolver only after an error other than NXDOMAIN.
 
 ## Consensus model
 
