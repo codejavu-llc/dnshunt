@@ -68,7 +68,11 @@ func DetectWildcard(ctx context.Context, domain string, qtype uint16, qtypeName 
 }
 
 func (p *WildcardProfile) Match(result Result) bool {
-	if p == nil || !strings.EqualFold(p.QType, result.RecordType) {
+	queryType := result.QueryType
+	if queryType == "" {
+		queryType = result.RecordType
+	}
+	if p == nil || !strings.EqualFold(p.QType, queryType) {
 		return false
 	}
 	target := strings.ToLower(strings.TrimSuffix(result.Target, "."))

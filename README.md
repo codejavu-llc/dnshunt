@@ -160,3 +160,15 @@ Use `-include-failures` to include failed lookups (NXDOMAIN, NODATA, and errors)
 ```bash
 ./dnshunt -l domains.txt -r resolvers.txt -rate-limit 250 -retry 1 -rc 5 -o results.jsonl -jsonl -include-failures
 ```
+
+## Alias record reporting
+
+When an A or AAAA response contains a CNAME for the queried domain, dnshunt reports that domain as `CNAME` and includes only the CNAME hostnames in its answers. Explicit CNAME queries also exclude IP addresses from their answers. Direct address records continue to be reported as A or AAAA.
+
+For example:
+
+```text
+accounts.example [CNAME] edge.example, portal.example
+```
+
+In JSON/JSONL, `query_type` preserves the requested type, while `record_type`, `answers`, and `records` describe the reported type. Full answer-section records, including terminal IP addresses, remain available in `resolvers[].records`. Alias hostnames are sorted, not presented in chain order.

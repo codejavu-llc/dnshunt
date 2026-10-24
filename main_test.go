@@ -125,3 +125,59 @@ func TestOutputDestinationsAndFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestAliasOutputUsesCNAMEType(t *testing.T) {
+	connection, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &mdns.Server{PacketConn: connection, Handler: mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
+		response := new(mdns.Msg)
+		response.SetReply(r)
+		for _, line := range []string{
+			"accounts.example. 60 IN CNAME portal.example.",
+			"portal.example. 60 IN CNAME edge.example.",
+			"edge.example. 60 IN A 192.0.2.10",
+			"edge.example. 60 IN AAAA 2001:db8::1",
+		} {
+			rr, err := mdns.NewRR(line)
+			if err != nil {
+				panic(err)
+			}
+			response.Answer = append(response.Answer, rr)
+		}
+		_ = w.WriteMsg(response)
+	})}
+	go func() { _ = server.ActivateAndServe() }()
+	t.Cleanup(func() { _ = server.Shutdown() })
+	for _, queryType := range []string{"A", "AAAA", "CNAME"} {
+		for _, format := range []string{"plain", "jsonl"} {
+			var stdout, stderr bytes.Buffer
+			args := []string{"-R", connection.LocalAddr().String(), "-retry", "1", "-t", queryType, "-format", format, "accounts.example"}
+			if code := run(context.Background(), args, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("%v: %s", args, stderr.String())
+			}
+			if format == "plain" {
+				if stdout.String() != "accounts.example [CNAME] edge.example, portal.example\n" {
+					t.Fatalf("unexpected output: %s", stdout.String())
+				}
+			} else {
+				var result dns.Result
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.RecordType != "CNAME" || result.QueryType != queryType || len(result.Answers) != 2 || len(result.Records) != 2 {
+					t.Fatalf("incorrect alias result: %+v", result)
+				}
+				for _, record := range result.Records {
+					if record.Type != "CNAME" {
+						t.Fatalf("non-CNAME record: %+v", record)
+					}
+				}
+				if len(result.Resolvers[0].Records) != 4 {
+					t.Fatal("lost raw resolver evidence")
+				}
+			}
+		}
+	}
+}

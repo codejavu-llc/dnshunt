@@ -62,6 +62,7 @@ type ObservedAnswer struct {
 type Result struct {
 	Target            string             `json:"target"`
 	RecordType        string             `json:"record_type"`
+	QueryType         string             `json:"query_type,omitempty"`
 	Answers           []string           `json:"answers"`
 	Records           []Record           `json:"records,omitempty"`
 	ObservedAnswers   []ObservedAnswer   `json:"observed_answers,omitempty"`
@@ -250,6 +251,7 @@ func ResolveTarget(ctx context.Context, target string, qtype uint16, qtypeName s
 	result := Result{
 		Target:            target,
 		RecordType:        strings.ToUpper(qtypeName),
+		QueryType:         strings.ToUpper(qtypeName),
 		ConsensusRequired: opts.Consensus,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -280,6 +282,31 @@ func ResolveTarget(ctx context.Context, target string, qtype uint16, qtypeName s
 		}
 		wg.Wait()
 	}
+	// An address lookup for an alias describes the queried owner as CNAME.
+	// Keep the original query type and complete wire records as evidence.
+	if qtype == mdns.TypeA || qtype == mdns.TypeAAAA {
+		for _, response := range responses {
+			for _, record := range response.Records {
+				if record.Type == "CNAME" && strings.EqualFold(record.Name, strings.TrimSuffix(target, ".")) {
+					result.RecordType = "CNAME"
+				}
+			}
+		}
+	}
+	for i := range responses {
+		responses[i].Answers = nil
+		seen := make(map[string]bool)
+		for _, record := range responses[i].Records {
+			if result.RecordType != "ANY" && record.Type != result.RecordType {
+				continue
+			}
+			if !seen[record.Value] {
+				responses[i].Answers = append(responses[i].Answers, record.Value)
+				seen[record.Value] = true
+			}
+		}
+		sort.Strings(responses[i].Answers)
+	}
 	result.Resolvers = responses
 
 	answerCount := make(map[string]int)
@@ -302,6 +329,9 @@ func ResolveTarget(ctx context.Context, target string, qtype uint16, qtypeName s
 		}
 		seenRecords := make(map[string]bool)
 		for _, record := range response.Records {
+			if result.RecordType != "ANY" && record.Type != result.RecordType {
+				continue
+			}
 			key := recordKey(record)
 			if !seenRecords[key] {
 				recordCount[key]++

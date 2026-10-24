@@ -292,3 +292,29 @@ func TestWildcardProfileMatchesOnlyKnownAnswerPool(t *testing.T) {
 		t.Fatal("out-of-scope target matched wildcard profile")
 	}
 }
+
+func TestAliasConsensusAndWildcard(t *testing.T) {
+	handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
+		response := new(mdns.Msg)
+		response.SetReply(r)
+		response.Answer = []mdns.RR{
+			&mdns.CNAME{Hdr: mdns.RR_Header{Name: r.Question[0].Name, Rrtype: mdns.TypeCNAME, Class: mdns.ClassINET}, Target: "edge.example."},
+			&mdns.A{Hdr: mdns.RR_Header{Name: "edge.example.", Rrtype: mdns.TypeA, Class: mdns.ClassINET}, A: net.ParseIP("192.0.2.10")},
+		}
+		_ = w.WriteMsg(response)
+	})
+	one := startDNSServer(t, handler)
+	two := startDNSServer(t, handler)
+	opts := testOptions(2, 2, 1)
+	result := ResolveTarget(context.Background(), "alias.example", mdns.TypeA, "A", []string{one, two}, opts)
+	if !result.Success || result.RecordType != "CNAME" || len(result.Answers) != 1 || result.Answers[0] != "edge.example" {
+		t.Fatalf("unexpected consensus: %+v", result)
+	}
+	profile, _, err := DetectWildcard(context.Background(), "example", mdns.TypeA, "A", []string{one, two}, opts, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.Match(result) {
+		t.Fatal("alias wildcard no longer matches address queries")
+	}
+}
